@@ -1295,6 +1295,7 @@ class BasicEntityPersister implements EntityPersister
 
             } else {
 
+                $tableAlias           = $this->getSQLTableAlias($association['sourceEntity'], $assocAlias);
                 $this->currentPersisterContext->selectJoinSql .= ' LEFT JOIN';
 
                 foreach ($association['joinColumns'] as $joinColumn) {
@@ -1303,6 +1304,11 @@ class BasicEntityPersister implements EntityPersister
 
                     $joinCondition[] = $this->getSQLTableAlias($association['sourceEntity'], $assocAlias) . '.' . $sourceCol . ' = '
                         . $this->getSQLTableAlias($association['targetEntity']) . '.' . $targetCol;
+                }
+
+                // Add filter SQL
+                if ($filterSql = $this->generateFilterConditionSQL($eagerEntity, $tableAlias)) {
+                    $joinCondition[] = $filterSql;
                 }
             }
 
