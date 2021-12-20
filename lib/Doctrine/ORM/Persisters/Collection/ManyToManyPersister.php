@@ -490,13 +490,19 @@ class ManyToManyPersister extends AbstractCollectionPersister
         $targetClass = $this->em->getClassMetadata($mapping['targetEntity']);
 
         foreach ($mapping['joinTable']['joinColumns'] as $joinColumn) {
-            $columns[] = $this->quoteStrategy->getJoinColumnName($joinColumn, $targetClass, $this->platform);
-            $types[]   = PersisterHelper::getTypeOfColumn($joinColumn['referencedColumnName'], $class, $this->em);
+            $columnName = $this->quoteStrategy->getJoinColumnName($joinColumn, $targetClass, $this->platform);
+            if(!in_array($columnName, $columns) ) {
+                $columns[] = $this->quoteStrategy->getJoinColumnName($joinColumn, $targetClass, $this->platform);
+                $types[]   = PersisterHelper::getTypeOfColumn($joinColumn['referencedColumnName'], $class, $this->em);
+            }
         }
 
         foreach ($mapping['joinTable']['inverseJoinColumns'] as $joinColumn) {
-            $columns[] = $this->quoteStrategy->getJoinColumnName($joinColumn, $targetClass, $this->platform);
-            $types[]   = PersisterHelper::getTypeOfColumn($joinColumn['referencedColumnName'], $targetClass, $this->em);
+            $columnName = $this->quoteStrategy->getJoinColumnName($joinColumn, $targetClass, $this->platform);
+            if(!in_array($columnName, $columns) ) {
+                $columns[] = $this->quoteStrategy->getJoinColumnName($joinColumn, $targetClass, $this->platform);
+                $types[] = PersisterHelper::getTypeOfColumn($joinColumn['referencedColumnName'], $targetClass, $this->em);
+            }
         }
 
         return [
@@ -552,22 +558,41 @@ class ManyToManyPersister extends AbstractCollectionPersister
             $class2 = $collection->getTypeClass();
         }
 
+        $columns = [];
         foreach ($mapping['joinTableColumns'] as $joinTableColumn) {
-            $isRelationToSource = isset($mapping['relationToSourceKeyColumns'][$joinTableColumn]);
+            if(!in_array($joinTableColumn, $columns)) {
+                $columns[] = $joinTableColumn;
+                $isRelationToSource = isset($mapping['relationToSourceKeyColumns'][$joinTableColumn]);
 
-            if ( ! $isComposite) {
-                $params[] = $isRelationToSource ? array_pop($identifier1) : array_pop($identifier2);
+                if (!$isComposite) {
+                    $params[] = $isRelationToSource ? array_pop($identifier1) : array_pop($identifier2);
 
-                continue;
+                    continue;
+                }
+
+                if ($isRelationToSource) {
+                    $column = $class1->getFieldForColumn($mapping['relationToSourceKeyColumns'][$joinTableColumn]);
+                    $value = $identifier1[$column];
+                    if(is_null($value)) {
+                        $value = $class1->getFieldValue($collection->getOwner(), $column);
+                    }
+                    $params[] = $value;
+                    continue;
+                }
+
+                $column = $class2->getFieldForColumn($mapping['relationToTargetKeyColumns'][$joinTableColumn]);
+                $value = $identifier2[$column];
+                if(is_null($value)) {
+                    $relationsValues = $collection->getValues();
+                    foreach ($relationsValues as $relation) {
+                        if(get_class($relation) == $class2->getName()) {
+                            $value = $class2->getFieldValue($relation, $column);
+                            continue;
+                        }
+                    }
+                }
+                $params[] = $value;
             }
-
-            if ($isRelationToSource) {
-                $params[] = $identifier1[$class1->getFieldForColumn($mapping['relationToSourceKeyColumns'][$joinTableColumn])];
-
-                continue;
-            }
-
-            $params[] = $identifier2[$class2->getFieldForColumn($mapping['relationToTargetKeyColumns'][$joinTableColumn])];
         }
 
         return $params;
