@@ -502,6 +502,11 @@ class BasicEntityPersister implements EntityPersister
              . ' SET ' . implode(', ', $set)
              . ' WHERE ' . implode(' = ? AND ', $where) . ' = ?';
 
+        $filterSql  = $this->generateFilterConditionSQL($this->class, $quotedTableName);
+
+        if ('' !== $filterSql) {
+            $sql .= ' AND ' . $filterSql;
+        }
         $result = $this->conn->executeUpdate($sql, $params, $types);
 
         if ($versioned && ! $result) {
@@ -549,11 +554,15 @@ class BasicEntityPersister implements EntityPersister
             }
 
             foreach ($joinColumns as $joinColumn) {
-                $keys[] = $this->quoteStrategy->getJoinColumnName($joinColumn, $class, $this->platform);
+                if(!in_array($joinColumn, $keys)) {
+                    $keys[] = $this->quoteStrategy->getJoinColumnName($joinColumn, $class, $this->platform);
+                }
             }
 
             foreach ($otherColumns as $joinColumn) {
-                $otherKeys[] = $this->quoteStrategy->getJoinColumnName($joinColumn, $class, $this->platform);
+                if(!in_array($joinColumn, $otherKeys)) {
+                    $otherKeys[] = $this->quoteStrategy->getJoinColumnName($joinColumn, $class, $this->platform);
+                }
             }
 
             if (isset($mapping['isOnDeleteCascade'])) {
@@ -582,9 +591,48 @@ class BasicEntityPersister implements EntityPersister
         $id         = array_combine($idColumns, $identifier);
         $types      = $this->getClassIdentifiersTypes($class);
 
-        $this->deleteJoinTableRecords($identifier);
+        $allIidentifiers = [];
+        $associations = $class->getAssociationMappings();
+        foreach ($associations as $association) {
+            foreach ($association['relationToSourceKeyColumns'] as $associationColumn) {
+                $attributeName = $class->getFieldForColumn($associationColumn);
+                if (!array_key_exists($attributeName,$allIidentifiers)) {
+                    $allIidentifiers[$attributeName] = $class->getFieldValue($entity,  $attributeName);
+                }
+            }
+        }
+
+        $this->deleteJoinTableRecords($allIidentifiers);
+
+        $filters = $this->getFiltersConstraints();
+        $id = array_merge($id, $filters);
 
         return (bool) $this->conn->delete($tableName, $id, $types);
+    }
+
+    /**
+     * Get filters in array
+     *
+     * @return array
+     */
+    private function getFiltersConstraints() {
+        $result = [];
+        $filtersEnabled = $this->em->getFilters()->getEnabledFilters();
+
+        foreach ($filtersEnabled as $filter) {
+            $conditionFilter  = unserialize($filter);
+
+            foreach ($conditionFilter as $conditionKey => $conditionValue) {
+                $fieldMapped = $this->class->getFieldMapping($conditionKey);
+
+                if($fieldMapped){
+                    $columnName = $fieldMapped['columnName'];
+                    $result[$columnName] = $conditionValue['value'];
+                }
+            }
+        }
+        
+        return $result;
     }
 
     /**
